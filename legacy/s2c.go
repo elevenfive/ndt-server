@@ -12,22 +12,61 @@ import (
 	"github.com/m-lab/ndt-cloud/ndt"
 )
 
+func (tr *Responder) ManageS2CTest(ws *websocket.Conn, h http.Handler) (float64, error) {
+	// Create a TLS server for running the S2C test.
+	serveMux := http.NewServeMux()
+	serveMux.Handle("/ndt_protocol", h)
+	err := tr.StartTLSAsync(serveMux)
+	if err != nil {
+		return 0, err
+	}
+	defer tr.Close()
+
+	done := make(chan float64)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	go func() {
+		s2cKbps, err := tr.S2CController(ws)
+		if err != nil {
+			cancel()
+			log.Println("S2C: S2CController error:", err)
+			return
+		}
+		done <- s2cKbps
+	}()
+
+	select {
+	case <-ctx.Done():
+		log.Println("S2C: ctx done!")
+		return 0, ctx.Err()
+	case rate := <-done:
+		log.Println("S2C: finished ", rate)
+		return rate, nil
+	}
+}
+
 // S2CTestHandler is an http.Handler that executes the NDT s2c test over websockets.
 func (tr *Responder) S2CTestHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("s2c handler")
 	upgrader := MakeNdtUpgrader([]string{"s2c"})
+	log.Println("upgrading")
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		// Upgrade should have already returned an HTTP error code.
 		log.Println("ERROR S2C: upgrader", err)
 		return
 	}
+	log.Println("after upgrading")
 	defer ws.Close()
 
 	// Define an absolute deadline for running all tests.
 	deadline := time.Now().Add(tr.duration)
 
 	// Signal control channel that we are about to start the test.
+	log.Println("send ready")
 	tr.result <- cReadyS2C
+	log.Println("run test")
 	tr.result <- runS2C(ws, deadline.Sub(time.Now()))
 }
 
