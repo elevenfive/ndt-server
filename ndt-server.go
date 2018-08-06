@@ -117,6 +117,7 @@ func manageC2sTest(ws *websocket.Conn) (float64, error) {
 	}
 }
 
+/*
 func manageS2cTest(ws *websocket.Conn) (float64, error) {
 	// Create a testResponder instance.
 	testResponder := legacy.NewResponder("S2C", 20*time.Second, *fCertFile, *fKeyFile)
@@ -156,6 +157,7 @@ func manageS2cTest(ws *websocket.Conn) (float64, error) {
 		return rate, nil
 	}
 }
+*/
 
 // TODO: run meta test.
 func runMetaTest(ws *websocket.Conn) {
@@ -230,7 +232,11 @@ func NdtServer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if runS2c {
-		s2cRate, err = manageS2cTest(ws)
+		testResponder := legacy.NewResponder("S2C", 20*time.Second, *fCertFile, *fKeyFile)
+		s2cRate, err = testResponder.ManageS2CTest(ws,
+			promhttp.InstrumentHandlerCounter(
+				testCount.MustCurryWith(prometheus.Labels{"direction": "s2c"}),
+				http.HandlerFunc(testResponder.S2CTestHandler)))
 		if err != nil {
 			log.Println("ERROR: manageS2cTest", err)
 		} else {
