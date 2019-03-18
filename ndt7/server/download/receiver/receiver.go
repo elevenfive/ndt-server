@@ -28,6 +28,7 @@ func Start(ctx context.Context, conn *websocket.Conn) <-chan model.IMsg {
 		for {
 			select {
 			case <-ctx.Done():
+				logging.Logger.Debug("receiver: context done")
 				return
 			default:
 			}

@@ -28,7 +28,7 @@ func getSocketAndPossiblyEnableBBR(conn *websocket.Conn) (*os.File, error) {
 	// we just abort the test, as this should not happen (TM).
 	if fp == nil {
 		err := errors.New("cannot get file bound to websocket conn")
-		logging.Logger.WithError(err).Warn("Cannot enable BBR")
+		logging.Logger.WithError(err).Warn("fdcache.GetAndForgetFile failed")
 		return nil, err
 	}
 	err := bbr.Enable(fp)
@@ -75,6 +75,7 @@ func Start(ctx context.Context, conn *websocket.Conn) <-chan model.IMsg {
 		for {
 			select {
 			case <-ctx.Done():
+				logging.Logger.Debug("measurer: context done")
 				return
 			case now := <-ticker.C:
 				elapsed := now.Sub(t0)
