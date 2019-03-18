@@ -2,10 +2,8 @@
 package download
 
 import (
-	"context"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/m-lab/go/warnonerror"
@@ -17,12 +15,6 @@ import (
 	"github.com/m-lab/ndt-server/ndt7/server/results"
 	"github.com/m-lab/ndt-server/ndt7/spec"
 )
-
-// defaultDuration is the default duration of a subtest in nanoseconds.
-const defaultDuration = 10 * time.Second
-
-// maxDuration is the max duration of a subtest in nanoseconds.
-const maxDuration = 15 * time.Second
 
 // Handler handles a download subtest from the server side.
 type Handler struct {
@@ -38,15 +30,15 @@ func warnAndClose(writer http.ResponseWriter, message string) {
 	writer.WriteHeader(http.StatusBadRequest)
 }
 
-// Merge merges the ouput from many IMsg channels into a single channel.
+// Merge merges the ouput from many Measurements channels into a single channel.
 //
 // See <https://medium.com/justforfunc/two-ways-of-merging-n-channels-in-go-43c0b57cd1de>
-func merge(cs ...<-chan model.IMsg) <-chan model.IMsg {
-	out := make(chan model.IMsg)
+func merge(cs ...<-chan model.Measurement) <-chan model.Measurement {
+	out := make(chan model.Measurement)
 	var wg sync.WaitGroup
 	wg.Add(len(cs))
 	for _, c := range cs {
-		go func(c <-chan model.IMsg) {
+		go func(c <-chan model.Measurement) {
 			for v := range c {
 				out <- v
 			}
@@ -86,30 +78,11 @@ func (dl Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return // error already printed
 	}
 	defer warnonerror.Close(resultfp, "Ignoring close results file error")
-	sctx, scancel := context.WithTimeout(request.Context(), defaultDuration)
-	defer scancel()
-	sender := sender.Start(conn, measurer.Start(sctx, conn))
-	defer func() {
-		for range sender {
-			// discard
-		}
-	}()
-	rctx, rcancel := context.WithTimeout(request.Context(), maxDuration)
-	defer rcancel()
-	receiver := receiver.Start(rctx, conn)
-	defer func() {
-		for range receiver {
-			// discard
-		}
-	}()
-	// XXX: channel origin
-	// XXX: error?
-	for imsg := range(merge(sender, receiver)) {
-		if imsg.Err != nil {
-			return
-		}
-		origin := "xxx"
-		if err := resultfp.WriteMeasurement(imsg.Measurement, origin); err != nil {
+	sender := sender.Start(conn, measurer.Start(request.Context(), conn))
+	receiver := receiver.Start(request.Context(), conn)
+	for measurement := range(merge(sender, receiver)) {
+		err := resultfp.WriteMeasurement(measurement, measurement.Origin)
+		if err != nil {
 			logging.Logger.WithError(err).Warn("Cannot save measurement on disk")
 			return
 		}

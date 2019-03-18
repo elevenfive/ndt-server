@@ -36,8 +36,8 @@ func makePreparedMessage(size int) (*websocket.PreparedMessage, error) {
 // previous stage, the sender will leave early. If no error is received and
 // the channel is closed, the sender will send a Close message to the client
 // thereby initiating a clean shutdown of the websocket connection.
-func Start(conn *websocket.Conn, in <-chan model.IMsg) <-chan model.IMsg {
-	out := make(chan model.IMsg)
+func Start(conn *websocket.Conn, in <-chan model.Measurement) <-chan model.Measurement {
+	out := make(chan model.Measurement)
 	go func() {
 		defer close(out)
 		defer func() {
@@ -51,12 +51,12 @@ func Start(conn *websocket.Conn, in <-chan model.IMsg) <-chan model.IMsg {
 		const bulkMessageSize = 1 << 13
 		preparedMessage, err := makePreparedMessage(bulkMessageSize)
 		if err != nil {
-			out <- model.IMsg{Err: err}
+			logging.Logger.WithError(err).Warn("makePreparedMessage failed")
 			return
 		}
 		for {
 			select {
-			case imsg, ok := <-in:
+			case measurement, ok := <-in:
 				if !ok {
 					// This means that the previous stage has terminated cleanly so
 					// we can start closing the websocket connection.
@@ -64,23 +64,19 @@ func Start(conn *websocket.Conn, in <-chan model.IMsg) <-chan model.IMsg {
 						websocket.CloseNormalClosure, "Done sending")
 					err := conn.WriteControl(websocket.CloseMessage, msg, time.Time{})
 					if err != nil {
-						out <- model.IMsg{Err: err}
+						logging.Logger.WithError(err).Warn("conn.WriteControl failed")
 						return
 					}
 					return
 				}
-				if imsg.Err != nil {
-					out <- imsg
+				if err := conn.WriteJSON(measurement); err != nil {
+					logging.Logger.WithError(err).Warn("conn.WriteJSON failed")
 					return
 				}
-				if err := conn.WriteJSON(imsg.Measurement); err != nil {
-					out <- model.IMsg{Err: err}
-					return
-				}
-				out <- imsg
+				out <- measurement
 			default:
 				if err := conn.WritePreparedMessage(preparedMessage); err != nil {
-					out <- model.IMsg{Err: err}
+					logging.Logger.WithError(err).Warn("conn.WritePreparedMessage failed")
 					return
 				}
 			}

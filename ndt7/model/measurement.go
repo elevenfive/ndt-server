@@ -14,4 +14,12 @@ type Measurement struct {
 
 	// TCPInfo contains metrics measured using TCP_INFO instrumentation.
 	TCPInfo *TCPInfo `json:"tcp_info,omitempty"`
+
+	// Origin contains information on who generated this measurement. For very
+	// obvious reasons this field is not transferred via JSON but rather it's
+	// assigned by the server itself.
+	//
+	// FIXME: this is sent actually. We probably need an internal message
+	// wrapper for moving this information around.
+	Origin string
 }

@@ -4,7 +4,7 @@ package receiver
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/m-lab/ndt-server/logging"
@@ -12,22 +12,28 @@ import (
 	"github.com/m-lab/ndt-server/ndt7/spec"
 )
 
+// maxReceiveTime is the maximum time for which we wait for
+// incoming counter-flow messages, in nanosecond.
+const maxReceiveTime = 15 * time.Second
+
 // Start starts the counter-flow messages receiver in a background
 // goroutine. The receiver will run until the context is not done
 // and it receives valid counter-flow messages. These messages will
 // be emitted on the returned channel. Also errors will be emitted
 // there. An error causes the receiver to terminate. The clean final
 // state is reached when the client sends us a Close message.
-func Start(ctx context.Context, conn *websocket.Conn) <-chan model.IMsg {
-	out := make(chan model.IMsg)
+func Start(ctx context.Context, conn *websocket.Conn) <-chan model.Measurement {
+	out := make(chan model.Measurement)
 	go func() {
 		defer close(out)
 		logging.Logger.Debug("receiver: start")
 		defer logging.Logger.Debug("receiver: stop")
 		conn.SetReadLimit(spec.MinMaxMessageSize)
+		rctx, cancel := context.WithTimeout(ctx, maxReceiveTime)
+		defer cancel()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-rctx.Done():
 				logging.Logger.Debug("receiver: context done")
 				return
 			default:
@@ -41,22 +47,23 @@ func Start(ctx context.Context, conn *websocket.Conn) <-chan model.IMsg {
 				// be blocked in conn.ReadMessage until the next stage of the pipeline
 				// will timeout and close the connection.
 				if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-					out <- model.IMsg{Err: err}
 					return
 				}
+				logging.Logger.WithError(err).Warn("conn.ReadMessage failed")
 				return
 			}
 			if mtype != websocket.TextMessage {
-				out <- model.IMsg{Err: errors.New("received non textual message")}
+				logging.Logger.Warn("Received non textual message")
 				return
 			}
 			var measurement model.Measurement
 			err = json.Unmarshal(mdata, &measurement)
 			if err != nil {
-				out <- model.IMsg{Err: err}
+				logging.Logger.WithError(err).Warn("json.Unmarshal failed")
 				return
 			}
-			out <- model.IMsg{Measurement: measurement}
+			measurement.Origin = "client"
+			out <- measurement
 		}
 	}()
 	return out
