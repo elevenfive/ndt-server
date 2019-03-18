@@ -56,14 +56,14 @@ func getMaxBandwidthAndMinRTT(fp *os.File) (model.BBRInfo, error) {
 	// we're going to use in ndt7. The units we use are the most common ones
 	// in which people typically expects these variables.
 	maxbw := uint64(bbrip.bbr_bw_hi)<<32 | uint64(bbrip.bbr_bw_lo)
-	if maxbw > math.MaxUint64 / 8 {
+	if maxbw > math.MaxUint64/8 {
 		return metrics, syscall.EOVERFLOW
 	}
 	maxbw *= 8 // bytes/s to bits/s
 	if maxbw > math.MaxInt64 {
 		return metrics, syscall.EOVERFLOW
 	}
-	metrics.MaxBandwidth = int64(maxbw)  // Java has no uint64
+	metrics.MaxBandwidth = int64(maxbw) // Java has no uint64
 	metrics.MinRTT = float64(bbrip.bbr_min_rtt)
 	metrics.MinRTT /= 1000.0 // microseconds to milliseconds
 	return metrics, nil

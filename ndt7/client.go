@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/apex/log"
+	"github.com/gorilla/websocket"
 	"github.com/m-lab/ndt-server/ndt7/model"
 	"github.com/m-lab/ndt-server/ndt7/spec"
-	"github.com/gorilla/websocket"
 )
 
 // minMeasurementInterval is the minimum value of the interval betwen

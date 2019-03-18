@@ -27,6 +27,4 @@ var (
 		},
 		[]string{"direction", "code"},
 	)
-
-
 )

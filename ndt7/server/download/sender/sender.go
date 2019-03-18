@@ -26,49 +26,61 @@ func makePreparedMessage(size int) (*websocket.PreparedMessage, error) {
 	return websocket.NewPreparedMessage(websocket.BinaryMessage, data)
 }
 
-// Start is a pipeline stage that continuously sends binary messages to the
-// client using conn and intermixes such messages with measurements coming
-// from the measurement channel. This function fully drains the measurement
-// channel, also in case it leaves early because of error. The default
-// behaviour is to continue running as long as there are measurements coming
-// in. That it, it's the goroutine writing on the measurements channel that
-// decides when we should stop running. In case of failure, this goroutine
-// will post an error on the returned channel. Otherwise, it will just close
-// the channel when it's leaving.
-func Start(conn *websocket.Conn, measurements <-chan model.Measurement) <-chan error {
-	out := make(chan error)
+// Start starts the sender in a background goroutine. The sender is a filter
+// that receives and processes internal messages coming from an upstream
+// stage, typically the measurer. When the internal message contains a new
+// measurement, that measurement is sent to the client as a textual message
+// and also posted on the returned channel. If no new internal message is
+// available, then sender will also send binary messages to generate network
+// load. The input channel is always drained. If an error is received by a
+// previous stage, the sender will leave early. If no error is received and
+// the channel is closed, the sender will send a Close message to the client
+// thereby initiating a clean shutdown of the websocket connection.
+func Start(conn *websocket.Conn, in <-chan model.IMsg) <-chan model.IMsg {
+	out := make(chan model.IMsg)
 	go func() {
 		defer close(out)
 		defer func() {
-			for range measurements {
+			for range in {
 				// make sure we drain the channel
 			}
 		}()
-		logging.Logger.Debug("Generating random buffer")
+		logging.Logger.Debug("sender: start")
+		defer logging.Logger.Debug("sender: stop")
+		logging.Logger.Debug("sender: generating random buffer")
 		const bulkMessageSize = 1 << 13
 		preparedMessage, err := makePreparedMessage(bulkMessageSize)
 		if err != nil {
-			out <- err
+			out <- model.IMsg{Err: err}
 			return
 		}
-		logging.Logger.Debug("Start sending data to client")
-		defer logging.Logger.Debug("Stop sending data to client")
 		for {
 			select {
-			case m, ok := <-measurements:
-				if !ok { // This means that the previous step has terminated
+			case imsg, ok := <-in:
+				if !ok {
+					// This means that the previous stage has terminated cleanly so
+					// we can start closing the websocket connection.
 					msg := websocket.FormatCloseMessage(
 						websocket.CloseNormalClosure, "Done sending")
-					out <- conn.WriteControl(websocket.CloseMessage, msg, time.Time{})
+					err := conn.WriteControl(websocket.CloseMessage, msg, time.Time{})
+					if err != nil {
+						out <- model.IMsg{Err: err}
+						return
+					}
 					return
 				}
-				if err := conn.WriteJSON(m); err != nil {
-					out <- err
+				if imsg.Err != nil {
+					out <- imsg
 					return
 				}
+				if err := conn.WriteJSON(imsg.Measurement); err != nil {
+					out <- model.IMsg{Err: err}
+					return
+				}
+				out <- imsg
 			default:
 				if err := conn.WritePreparedMessage(preparedMessage); err != nil {
-					out <- err
+					out <- model.IMsg{Err: err}
 					return
 				}
 			}
