@@ -4,7 +4,6 @@ package measurer
 import (
 	"context"
 	"errors"
-	"net/http"
 	"os"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/m-lab/ndt-server/fdcache"
 	"github.com/m-lab/ndt-server/logging"
 	"github.com/m-lab/ndt-server/ndt7/model"
-	"github.com/m-lab/ndt-server/ndt7/server/results"
 	"github.com/m-lab/ndt-server/ndt7/spec"
 	"github.com/m-lab/ndt-server/tcpinfox"
 )
@@ -67,7 +65,7 @@ func Start(ctx context.Context, conn *websocket.Conn) <-chan model.IMsg {
 		defer logging.Logger.Debug("measurer: stop")
 		sockfp, err := getSocketAndPossiblyEnableBBR(conn)
 		if err != nil {
-			dst <- IMsg{Err: err}
+			dst <- model.IMsg{Err: err}
 			return // error already printed
 		}
 		defer sockfp.Close()
@@ -85,10 +83,10 @@ func Start(ctx context.Context, conn *websocket.Conn) <-chan model.IMsg {
 				}
 				err = measure(&measurement, sockfp)
 				if err != nil {
-					dst <- IMsg{Err: err}
+					dst <- model.IMsg{Err: err}
 					return // error already printed
 				}
-				dst <- IMsg{Measurement: measurement}
+				dst <- model.IMsg{Measurement: measurement}
 			}
 		}
 	}()
